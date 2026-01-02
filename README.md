@@ -9,9 +9,9 @@ Aplikacja typu proxy, która pobiera dane o repozytoriach użytkownika z API Git
 ## Budowanie i uruchamianie
 
 Aby uruchomić aplikację:
-
+```bash
 ./mvnw spring-boot:run
-
+```
 
 Aby zbudować projekt i uruchomić testy:
 ```bash
