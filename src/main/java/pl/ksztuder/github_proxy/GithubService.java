@@ -17,6 +17,7 @@ class GithubService {
 
         return repos.stream()
             .filter(repo -> !repo.fork())
+            .parallel()
             .map(repo -> {
                 var branches = githubClient.getBranches(repo.owner().login(), repo.name());
 

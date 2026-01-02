@@ -2,6 +2,7 @@ package pl.ksztuder.github_proxy;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import org.apache.commons.lang3.time.StopWatch;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,6 +12,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
+
+import java.util.concurrent.TimeUnit;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,46 +52,51 @@ class GithubProxyIntegrationTest {
         this.webTestClient = WebTestClient.bindToServer()
             .baseUrl("http://localhost:" + port)
             .build();
+        wireMockServer.resetAll();
     }
 
     @Test
-    void shouldReturnRepos() {
-        // GIVEN
+    void shouldCompleteWithinTimeLimitWith3Requests() {
+
+        int delay = 1000;
+
         stubFor(get(urlPathMatching("/users/.*"))
             .willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
+                .withFixedDelay(delay) // Opóźnienie 1s
                 .withBody("""
                     [
-                      {
-                        "name": "test-repo",
-                        "owner": { "login": "user" },
-                        "fork": false
-                      }
+                      { "name": "repo-1", "owner": { "login": "user" }, "fork": false },
+                      { "name": "repo-2", "owner": { "login": "user" }, "fork": false },
+                      { "name": "repo-fork", "owner": { "login": "user" }, "fork": true }
                     ]
                 """)));
 
-        stubFor(get(urlPathMatching("/repos/.*"))
+        stubFor(get(urlPathMatching("/repos/.*/branches"))
             .willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
+                .withFixedDelay(delay)
                 .withBody("""
-                    [
-                      {
-                        "name": "main",
-                        "commit": { "sha": "123" }
-                      }
-                    ]
+                    [ { "name": "main", "commit": { "sha": "123" } } ]
                 """)));
 
-        // WHEN & THEN
+        StopWatch stopWatch = StopWatch.createStarted();
+
         webTestClient.get()
             .uri("/api/github/test-user")
             .exchange()
             .expectStatus().isOk()
             .expectBodyList(RepositoryResponse.class)
-            .hasSize(1)
-            .value(repos ->
-                assertThat(repos.getFirst().branches().getFirst().name()).isEqualTo("main")
-            );
+            .hasSize(2); // Sprawdzamy czy fork został odfiltrowany (zostały 2 repo)
+
+        stopWatch.stop();
+        long totalTime = stopWatch.getTime(TimeUnit.MILLISECONDS);
+
+        System.out.println(">>> Czas wykonania: " + totalTime + " ms");
+
+        verify(3, getRequestedFor(urlMatching(".*")));
+        assertThat(totalTime).isGreaterThan(2000);
+        assertThat(totalTime).isLessThan(3200); // 3200ms to bezpieczny margines dla 3000ms
     }
 
     @Test
